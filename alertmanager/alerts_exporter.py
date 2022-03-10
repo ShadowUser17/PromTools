@@ -12,7 +12,8 @@ import prometheus_client
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', dest='target', default='http://127.0.0.1:9093', help='Set alertmanager address.')
-    parser.add_argument('-l', dest='listen', default='http://127.0.0.1:9902', help='Set exporter listen address.')
+    parser.add_argument('-l', dest='listen', default='http://127.0.0.1:49152', help='Set exporter listen address.')
+    parser.add_argument('-i', dest='interval', default=30.0, type=float, help='Set scrape interval.')
     return parser.parse_args()
 
 
@@ -60,7 +61,7 @@ if __name__ == '__main__':
             data = get_alerts(args.target)
             data = parse_alerts(data)
             req_handler(data, metric)
-            time.sleep(30)
+            time.sleep(args.interval)
 
     except Exception:
         traceback.print_exc()
