@@ -30,16 +30,17 @@ def parse_alerts(raw_data: list) -> list:
     parsed_data = []
 
     for item in iter(raw_data):
+        fingerprint = item['fingerprint']
         severity = item['labels']['severity']
         description = item['annotations']['description']
-        parsed_data.append((severity, description))
+        parsed_data.append((fingerprint, severity, description))
 
     return parsed_data
 
 
 def req_handler(data: list, metric: prometheus_client.Counter) -> None:
-    for (severity, description) in data:
-        item = metric.labels(severity, description)
+    for (fingerprint, severity, description) in data:
+        item = metric.labels(fingerprint, severity, description)
         item.inc()
 
 
@@ -51,7 +52,7 @@ if __name__ == '__main__':
         metric = prometheus_client.Counter(
             'amanager_exp_alert',
             'Alerts from AlertManager.',
-            ['severity', 'description']
+            ['fingerprint', 'severity', 'description']
         )
 
         print('Listen: {}:{}'.format(listen.hostname, listen.port))
