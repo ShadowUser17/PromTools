@@ -2,6 +2,7 @@
 from urllib import parse as urllib
 from urllib import request
 
+import sys
 import json
 import time
 import argparse
@@ -27,20 +28,22 @@ def get_alerts(target: str) -> list:
     url = urllib.urljoin(target, '/api/v2/alerts')
     req = request.Request(url, method='GET')
 
-    with request.urlopen(req) as client:
-        data = client.read()
-        return json.loads(data.decode())
+    try:
+        with request.urlopen(req) as client:
+            data = client.read()
+            data = json.loads(data.decode())
 
+        parsed_data = []
+        for item in data:
+            severity = item['labels']['severity']
+            summary = item['annotations']['summary']
+            parsed_data.append((severity, summary))
 
-def parse_alerts(raw_data: list) -> list:
-    parsed_data = []
+        return parsed_data
 
-    for item in iter(raw_data):
-        severity = item['labels']['severity']
-        summary = item['annotations']['summary']
-        parsed_data.append((severity, summary))
-
-    return parsed_data
+    except Exception:
+        traceback.print_exc()
+        return []
 
 
 def req_handler(data: list, metric: prometheus_client.Gauge) -> None:
@@ -48,7 +51,7 @@ def req_handler(data: list, metric: prometheus_client.Gauge) -> None:
 
     for (severity, summary) in data:
         item = metric.labels(severity, summary)
-        item.inc()
+        item.set(1.0)
 
 
 if __name__ == '__main__':
@@ -67,9 +70,12 @@ if __name__ == '__main__':
 
         while True:
             data = get_alerts(args.target)
-            data = parse_alerts(data)
             req_handler(data, metric)
             time.sleep(args.interval)
 
+    except KeyboardInterrupt:
+        sys.exit(0)
+
     except Exception:
         traceback.print_exc()
+        sys.exit(1)

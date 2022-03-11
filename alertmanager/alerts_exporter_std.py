@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 from urllib import parse as urllib
-from urllib import request
 from http import server as http
+from urllib import request
 import socketserver
-import json
-import argparse
 import traceback
+import argparse
+import json
 
 
 class HandleAlerts:
@@ -63,6 +63,7 @@ class HandleAlerts:
 
         except Exception:
             self._err_request += 1
+            traceback.print_exc()
             return
 
         try:
@@ -74,9 +75,11 @@ class HandleAlerts:
 
         except Exception:
             self._err_parser += 1
+            traceback.print_exc()
 
 
-    def encode(self) -> bytes:
+    def __call__(self) -> bytes:
+        self.request()
         line = self.__str__()
         return line.encode()
 
@@ -96,9 +99,7 @@ class HandlerRequest(http.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/html')
         self.end_headers()
-
-        self.alert_handler.request()
-        self.wfile.write(self.alert_handler.encode())
+        self.wfile.write(self.alert_handler())
         self.wfile.write('\n'.encode())
 
 

@@ -9,7 +9,7 @@ Group=prometheus
 Type=simple
 Restart=on-failure
 WorkingDirectory=/tmp
-ExecStart=/opt/PromTools/alertmanager/alerts_exporter.py
+ExecStart=/opt/PromTools/alertmanager/alerts_exporter_std.py
 
 [Install]
 WantedBy=multi-user.target
