@@ -36,10 +36,9 @@ def parse_alerts(raw_data: list) -> list:
     parsed_data = []
 
     for item in iter(raw_data):
-        fingerprint = item['fingerprint']
         severity = item['labels']['severity']
-        description = item['annotations']['description']
-        parsed_data.append((fingerprint, severity, description))
+        summary = item['annotations']['summary']
+        parsed_data.append((severity, summary))
 
     return parsed_data
 
@@ -47,8 +46,8 @@ def parse_alerts(raw_data: list) -> list:
 def req_handler(data: list, metric: prometheus_client.Gauge) -> None:
     metric.clear()
 
-    for (fingerprint, severity, description) in data:
-        item = metric.labels(fingerprint, severity, description)
+    for (severity, summary) in data:
+        item = metric.labels(severity, summary)
         item.inc()
 
 
@@ -60,7 +59,7 @@ if __name__ == '__main__':
         metric = prometheus_client.Gauge(
             'amanager_exp_alert',
             'Alerts from AlertManager.',
-            ['fingerprint', 'severity', 'description']
+            ['severity', 'summary']
         )
 
         print('Listen: {}:{}'.format(*listen))

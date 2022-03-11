@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from ssl import AlertDescription
 from urllib import parse as urllib
 from urllib import request
 from http import server as http
@@ -20,10 +19,10 @@ class HandleAlerts:
 
     def __str__(self) -> str:
         line = [self.metric_help_line, self.metric_name_line]
-        template = 'severity=\"{}\",description=\"{}\",'
+        template = 'severity=\"{}\",summary=\"{}\",'
 
-        for (severity, description) in self._alerts.values():
-            line.append(self._metric + '{' + template.format(severity, description) + '} 1.0')
+        for (severity, summary) in self._alerts.values():
+            line.append(self._metric + '{' + template.format(severity, summary) + '} 1.0')
 
         return '\n'.join(line)
 
@@ -35,9 +34,9 @@ class HandleAlerts:
 
         for item in iter(raw_data):
             severity = item['labels']['severity']
-            description = item['annotations']['description']
-            description = description.replace('\n', '\\n')
-            self._alerts[item['fingerprint']] = [severity, description]
+            summary = item['annotations']['summary']
+            summary = summary.replace('\n', '\\n')
+            self._alerts[item['fingerprint']] = [severity, summary]
 
     def request(self) -> None:
         req = request.Request(self._target, method='GET')
