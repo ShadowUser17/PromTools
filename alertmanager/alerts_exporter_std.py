@@ -16,14 +16,14 @@ class HandleAlerts:
         self._alerts = dict()
 
         self.metric_help_line = '# HELP {} {}'.format(metric_name, metric_help)
-        self.metric_name_line = '# TYPE {} counter'.format(metric_name)
+        self.metric_name_line = '# TYPE {} gauge'.format(metric_name)
 
     def __str__(self) -> str:
         line = [self.metric_help_line, self.metric_name_line]
         template = 'severity=\"{}\",description=\"{}\",'
 
         for (severity, description) in self._alerts.values():
-            line.append(self._metric + '{' + template.format(severity, description) + '} 1')
+            line.append(self._metric + '{' + template.format(severity, description) + '} 1.0')
 
         return '\n'.join(line)
 
@@ -31,9 +31,12 @@ class HandleAlerts:
         return self.__str__()
 
     def _parser(self, raw_data: list) -> None:
+        self._alerts.clear()
+
         for item in iter(raw_data):
             severity = item['labels']['severity']
             description = item['annotations']['description']
+            description = description.replace('\n', '\\n')
             self._alerts[item['fingerprint']] = [severity, description]
 
     def request(self) -> None:
@@ -71,7 +74,10 @@ class HandlerRequest(http.BaseHTTPRequestHandler):
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='''\
+This is an AlertManager exporter.
+The main goal of this tool is to get alerts from AlertManager and convert them to Prometheus metrics.\
+''')
     parser.add_argument('-t', dest='target', default='http://127.0.0.1:9093', help='Set alertmanager address.')
     parser.add_argument('-l', dest='listen', default='127.0.0.1:49152', help='Set exporter listen address.')
     return parser.parse_args()
