@@ -6,13 +6,19 @@ import json
 import time
 import argparse
 import traceback
+
+# Warning! The next dependencies are external.
+# Make env and use ./env/bin/pip install -r <dir>/requirements.txt
 import prometheus_client
 
 
 def get_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='''\
+This is an AlertManager exporter.
+The main goal of this tool is to get alerts from AlertManager and convert them to Prometheus metrics.\
+''')
     parser.add_argument('-t', dest='target', default='http://127.0.0.1:9093', help='Set alertmanager address.')
-    parser.add_argument('-l', dest='listen', default='http://127.0.0.1:49152', help='Set exporter listen address.')
+    parser.add_argument('-l', dest='listen', default='127.0.0.1:49152', help='Set exporter listen address.')
     parser.add_argument('-i', dest='interval', default=30.0, type=float, help='Set scrape interval.')
     return parser.parse_args()
 
@@ -38,7 +44,9 @@ def parse_alerts(raw_data: list) -> list:
     return parsed_data
 
 
-def req_handler(data: list, metric: prometheus_client.Counter) -> None:
+def req_handler(data: list, metric: prometheus_client.Gauge) -> None:
+    metric.clear()
+
     for (fingerprint, severity, description) in data:
         item = metric.labels(fingerprint, severity, description)
         item.inc()
@@ -47,16 +55,16 @@ def req_handler(data: list, metric: prometheus_client.Counter) -> None:
 if __name__ == '__main__':
     try:
         args = get_args()
-        listen = urllib.urlparse(args.listen)
+        listen = args.listen.split(':')
 
-        metric = prometheus_client.Counter(
+        metric = prometheus_client.Gauge(
             'amanager_exp_alert',
             'Alerts from AlertManager.',
             ['fingerprint', 'severity', 'description']
         )
 
-        print('Listen: {}:{}'.format(listen.hostname, listen.port))
-        prometheus_client.start_http_server(listen.port, listen.hostname)
+        print('Listen: {}:{}'.format(*listen))
+        prometheus_client.start_http_server(addr=listen[0], port=int(listen[1]))
 
         while True:
             data = get_alerts(args.target)
