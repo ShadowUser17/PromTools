@@ -2,7 +2,9 @@
 from urllib import parse as urllib
 from http import server as http
 from urllib import request
+from urllib import error
 import socketserver
+import threading
 import traceback
 import argparse
 import json
@@ -10,9 +12,15 @@ import json
 
 class HandleAlerts:
     def __init__(self, target: str) -> None:
+        if not target.startswith('http'):
+            target = 'http://' + target
+
+        target = urllib.urljoin(target, '/api/v2/alerts')
+        self._target = request.Request(target, method='GET')
+
         self._metric = 'amanager_exp_alert'
         self._metric_help = 'Alerts from AlertManager'
-        self._target = urllib.urljoin(target, '/api/v2/alerts')
+        self._alerts_lock = threading.Lock()
         self._alerts = dict()
 
         self._err_request_name = 'amanager_exp_err_request'
@@ -24,16 +32,47 @@ class HandleAlerts:
         self._err_parser = 0.0
 
 
-    def __str__(self) -> str:
-        line = [
-            '# HELP {} {}'.format(self._metric, self._metric_help),
-            '# TYPE {} gauge'.format(self._metric)
-        ]
+    def _request_alerts(self) -> bool:
+        self._alerts.clear()
+        data = None
 
-        template = 'severity=\"{}\",summary=\"{}\",'
-        for (severity, summary) in self._alerts.values():
-            line.append(self._metric + '{' + template.format(severity, summary) + '} 1.0')
+        try:
+            with request.urlopen(self._target) as client:
+                data = client.read()
+                data = json.loads(data.decode())
 
+            for item in data:
+                severity = item['labels']['severity']
+                summary = item['annotations']['summary']
+                summary = summary.replace('\n', '\\n')
+                self._alerts[item['fingerprint']] = [severity, summary]
+
+        except (error.ContentTooShortError, error.HTTPError, error.URLError):
+            self._err_request += 1
+            traceback.print_exc()
+            return True
+
+        except (KeyError, AttributeError):
+            self._err_parser += 1
+            traceback.print_exc()
+            return True
+
+
+    def _format_alerts(self, skip_data: bool) -> str:
+        line = list()
+
+        # Skip data if error.
+        if not skip_data:
+            line.extend([
+                '# HELP {} {}'.format(self._metric, self._metric_help),
+                '# TYPE {} gauge'.format(self._metric)
+            ])
+
+            template = 'severity=\"{}\",summary=\"{}\",'
+            for (severity, summary) in self._alerts.values():
+                line.append(self._metric + '{' + template.format(severity, summary) + '} 1.0')
+
+        # Add error counters.
         line.extend([
             '# HELP {} {}'.format(self._err_request_name, self._err_request_help),
             '# TYPE {} gauge'.format(self._err_request_name),
@@ -47,45 +86,16 @@ class HandleAlerts:
         return '\n'.join(line)
 
 
-    def __repr__(self) -> str:
-        return self.__str__()
-
-
-    def request(self) -> None:
-        self._alerts.clear()
-        req = request.Request(self._target, method='GET')
-        data = None
-
-        try:
-            with request.urlopen(req) as client:
-                data = client.read()
-                data = json.loads(data.decode())
-
-        except Exception:
-            self._err_request += 1
-            traceback.print_exc()
-            return
-
-        try:
-            for item in data:
-                severity = item['labels']['severity']
-                summary = item['annotations']['summary']
-                summary = summary.replace('\n', '\\n')
-                self._alerts[item['fingerprint']] = [severity, summary]
-
-        except Exception:
-            self._err_parser += 1
-            traceback.print_exc()
-
-
     def __call__(self) -> bytes:
-        self.request()
-        line = self.__str__()
+        self._alerts_lock.acquire()
+        line = self._format_alerts(self._request_alerts())
+
+        self._alerts_lock.release()
         return line.encode()
 
 
 class HandlerRequest(http.BaseHTTPRequestHandler):
-    alert_handler = None
+    alerts_handler = None
     server_version = 'AlertManagerExporter'
     sys_version = 'Python3'
 
@@ -99,7 +109,7 @@ class HandlerRequest(http.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/html')
         self.end_headers()
-        self.wfile.write(self.alert_handler())
+        self.wfile.write(self.alerts_handler())
         self.wfile.write('\n'.encode())
 
 
@@ -118,13 +128,11 @@ def get_listen(address: str) -> tuple:
     return (addr, int(port))
 
 
-def main() -> None:
+def main(args: argparse.Namespace) -> None:
     try:
-        args = get_args()
-
-        HandlerRequest.alert_handler = HandleAlerts(args.target)
+        HandlerRequest.alerts_handler = HandleAlerts(args.target)
         with socketserver.ThreadingTCPServer(get_listen(args.listen), HandlerRequest) as srv:
-            print('Listen: {}:{}'.format(*srv.server_address))
+            print('Target: {} Listen: {}'.format(args.target, args.listen))
             srv.serve_forever()
 
     except KeyboardInterrupt:
@@ -135,4 +143,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    main(get_args())

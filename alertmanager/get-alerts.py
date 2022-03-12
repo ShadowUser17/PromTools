@@ -27,15 +27,22 @@ def parse_alerts(raw_data: list) -> list:
 
     for item in iter(raw_data):
         severity = item['labels']['severity']
+
+        summary = item['annotations']['summary']
+        summary = summary.replace('\n', '\\n')
+
         description = item['annotations']['description']
-        parsed_data.append((severity, description))
+        description = description.replace('\n', '\\n')
+        parsed_data.append((severity, summary, description))
 
     return parsed_data
 
 
 def print_alerts(parsed_data: list) -> None:
-    for (severity, description) in parsed_data:
-        print('{}: {}'.format(severity.capitalize(), description))
+    for (severity, summary, description) in parsed_data:
+        print('Severity: {}'.format(severity))
+        print('Summary: {}'.format(summary))
+        print('Description: {}'.format(description))
 
 
 if __name__ == '__main__':
