@@ -9,7 +9,9 @@ import traceback
 import argparse
 import json
 
-
+# If you need to add a new metric.
+# Edit following class methods:
+# __init__, _request_alerts, _format_alerts
 class HandleAlerts:
     def __init__(self, target: str) -> None:
         if not target.startswith('http'):
@@ -18,6 +20,7 @@ class HandleAlerts:
         target = urllib.urljoin(target, '/api/v2/alerts')
         self._target = request.Request(target, method='GET')
 
+        # Initialize metrics...
         self._metric = 'amanager_exp_alert'
         self._metric_help = 'Alerts from AlertManager'
         self._alerts_lock = threading.Lock()
@@ -42,10 +45,14 @@ class HandleAlerts:
                 data = json.loads(data.decode())
 
             for item in data:
+                # Required items:
                 severity = item['labels']['severity']
                 summary = item['annotations']['summary']
                 summary = summary.replace('\n', '\\n')
-                self._alerts[item['fingerprint']] = [severity, summary]
+
+                # Optional items:
+                dashboard = item['annotations'].get('dashboard', '')
+                self._alerts[item['fingerprint']] = [severity, summary, dashboard]
 
         except (error.ContentTooShortError, error.HTTPError, error.URLError):
             self._err_request += 1
@@ -63,14 +70,16 @@ class HandleAlerts:
 
         # Skip data if error.
         if not skip_data:
+            # Add metric headers.
             line.extend([
                 '# HELP {} {}'.format(self._metric, self._metric_help),
                 '# TYPE {} gauge'.format(self._metric)
             ])
 
-            template = 'severity=\"{}\",summary=\"{}\",'
-            for (severity, summary) in self._alerts.values():
-                line.append(self._metric + '{' + template.format(severity, summary) + '} 1.0')
+            # Build metric string.
+            template = 'severity=\"{}\",summary=\"{}\",dashboard=\"{}\",'
+            for (severity, summary, dashboard) in self._alerts.values():
+                line.append(self._metric + '{' + template.format(severity, summary, dashboard) + '} 1.0')
 
         # Add error counters.
         line.extend([
@@ -131,6 +140,7 @@ def get_listen(address: str) -> tuple:
 def main(args: argparse.Namespace) -> None:
     try:
         HandlerRequest.alerts_handler = HandleAlerts(args.target)
+
         with socketserver.ThreadingTCPServer(get_listen(args.listen), HandlerRequest) as srv:
             print('Target: {} Listen: {}'.format(args.target, args.listen))
             srv.serve_forever()
