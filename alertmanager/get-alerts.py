@@ -14,6 +14,9 @@ def get_args() -> argparse.Namespace:
 
 
 def get_alerts(target: str) -> list:
+    if not target.startswith('http'):
+        target = 'http://' + target
+
     url = urllib.urljoin(target, '/api/v2/alerts')
     req = request.Request(url, method='GET')
 
