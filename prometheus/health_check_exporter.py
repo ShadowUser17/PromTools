@@ -22,20 +22,17 @@ except ImportError:
 class HealthCheck(MetricsHandler):
     probe_ssl_earliest_cert_expiry = Gauge(
         'probe_ssl_earliest_cert_expiry',
-        'Returns earliest SSL cert expiry in unixtime',
-        ['instance']
+        'Returns earliest SSL cert expiry in unixtime'
     )
 
     probe_http_status_code = Gauge(
         'probe_http_status_code',
-        'Response HTTP status code',
-        ['instance']
+        'Response HTTP status code'
     )
 
     probe_duration_seconds = Gauge(
         'probe_duration_seconds',
-        'Returns how long the probe took to complete in seconds',
-        ['instance']
+        'Returns how long the probe took to complete in seconds'
     )
 
     def _load_ssl_cert(self, url: urllib.ParseResult):
