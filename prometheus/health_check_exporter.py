@@ -22,20 +22,17 @@ except ImportError:
 class HealthCheck(MetricsHandler):
     probe_ssl_earliest_cert_expiry = Gauge(
         'probe_ssl_earliest_cert_expiry',
-        'Returns earliest SSL cert expiry in unixtime',
-        ['instance']
+        'Returns earliest SSL cert expiry in unixtime'
     )
 
     probe_http_status_code = Gauge(
         'probe_http_status_code',
-        'Response HTTP status code',
-        ['instance']
+        'Response HTTP status code'
     )
 
     probe_duration_seconds = Gauge(
         'probe_duration_seconds',
-        'Returns how long the probe took to complete in seconds',
-        ['instance']
+        'Returns how long the probe took to complete in seconds'
     )
 
     def _load_ssl_cert(self, url: urllib.ParseResult):
@@ -45,7 +42,7 @@ class HealthCheck(MetricsHandler):
             port = 443 if not url.port else url.port
             peer_cert = ssl.get_server_certificate((url.hostname, port))
             peer_cert = x509.load_pem_x509_certificate(peer_cert.encode(), default_backend())
-            self.probe_ssl_earliest_cert_expiry.labels(url.hostname).set(peer_cert.not_valid_after.timestamp())
+            self.probe_ssl_earliest_cert_expiry.labels([]).set(peer_cert.not_valid_after.timestamp())
 
     def _check_endpoint(self, url: urllib.ParseResult):
         self.probe_http_status_code.clear()
@@ -53,8 +50,8 @@ class HealthCheck(MetricsHandler):
 
         with Session() as client:
             resp = client.request("GET", url.geturl(), verify=False)
-            self.probe_http_status_code.labels(url.hostname).set(resp.status_code)
-            self.probe_duration_seconds.labels(url.hostname).set(resp.elapsed.seconds)
+            self.probe_http_status_code.labels([]).set(resp.status_code)
+            self.probe_duration_seconds.labels([]).set(resp.elapsed.seconds)
 
     def do_GET(self):
         path = urllib.urlparse(self.path)
