@@ -5,6 +5,7 @@ import socketserver
 import threading
 import traceback
 import argparse
+import typing
 import sys
 import ssl
 
@@ -42,7 +43,8 @@ class MetricHandler:
             }
         }
 
-    def set(self, key: str, value) -> None:
+    def set(self, key: str, value: typing.Any) -> None:
+        'Set value of the metric'
         self._lock.acquire()
         self._data[key]['value'] = value
         self._lock.release()
@@ -50,14 +52,15 @@ class MetricHandler:
     def get(self, key: str) -> tuple:
         'Return: tuple(help, type, value)'
         self._lock.acquire()
+
         data = (
             self._data[key].get('help'),
             self._data[key].get('type'),
             self._data[key].get('value')
         )
+
         self._lock.release()
         return data
-
 
     def clear(self) -> None:
         self._lock.acquire()
@@ -67,7 +70,7 @@ class MetricHandler:
 
         self._lock.release()
 
-    def __call__(self, target: str, writer) -> None:
+    def __call__(self, target: str, writer: typing.BinaryIO) -> None:
         url = urllib.urlparse(target)
         self.clear()
         self._request_data(url)
@@ -97,7 +100,7 @@ class MetricHandler:
         except Exception:
             self.set('probe_success', 0)
 
-    def _format_data(self) -> bytes:
+    def _format_data(self) -> typing.Generator:
         for key in self._data:
             items = self.get(key)
 
@@ -113,7 +116,7 @@ class RequestHandler(http.BaseHTTPRequestHandler):
     server_version = 'HealthCheckExporter'
     sys_version = 'Python3'
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         path = urllib.urlparse(self.path)
         args = urllib.parse_qs(path.query)
 
@@ -137,7 +140,7 @@ This is a Health Check Exporter
 The main goal of this tool is to check URLs and convert them to Prometheus metrics.\
 ''')
         parser.add_argument('-l', dest='address', default='127.0.0.1', help='Set exporter listen address.')
-        parser.add_argument('-p', dest='port', default=9097, type=int, help='Set exporter listen port.')
+        parser.add_argument('-p', dest='port', default=49155, type=int, help='Set exporter listen port.')
 
         disable_warnings()
         args = parser.parse_args()
