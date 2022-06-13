@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from urllib import parse as urllib
-from http.server import HTTPServer
+from http import server as http
+import socketserver
+import threading
 import traceback
 import argparse
 import sys
@@ -8,9 +10,7 @@ import ssl
 
 try:
     from cryptography.hazmat.backends import default_backend
-    from prometheus_client import MetricsHandler
     from urllib3 import disable_warnings
-    from prometheus_client import Gauge
     from cryptography import x509
     from requests import Session
 
@@ -19,39 +19,86 @@ except ImportError:
     sys.exit(1)
 
 
-class HealthCheck(MetricsHandler):
-    probe_ssl_earliest_cert_expiry = Gauge(
-        'probe_ssl_earliest_cert_expiry',
-        'Returns earliest SSL cert expiry in unixtime'
-    )
+class MetricHandler:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
 
-    probe_http_status_code = Gauge(
-        'probe_http_status_code',
-        'Response HTTP status code'
-    )
+        self._data = {
+            'probe_ssl_earliest_cert_expiry': {
+                'help': 'Returns earliest SSL cert expiry in unixtime',
+                'type': 'gauge', 'value': 0.0
+            },
+            'probe_http_status_code': {
+                'help': 'Response HTTP status code',
+                'type': 'gauge', 'value': 0.0
+            },
+            'probe_duration_seconds': {
+                'help': 'Returns how long the probe took to complete in seconds',
+                'type': 'gauge', 'value': 0.0
+            }
+        }
 
-    probe_duration_seconds = Gauge(
-        'probe_duration_seconds',
-        'Returns how long the probe took to complete in seconds'
-    )
+    def set(self, key: str, value) -> None:
+        self._lock.acquire()
+        self._data[key]['value'] = value
+        self._lock.release()
 
-    def _load_ssl_cert(self, url: urllib.ParseResult):
-        self.probe_ssl_earliest_cert_expiry.clear()
+    def clear(self) -> None:
+        self._lock.acquire()
 
-        if url.scheme.startswith('https'):
-            port = 443 if not url.port else url.port
-            peer_cert = ssl.get_server_certificate((url.hostname, port))
-            peer_cert = x509.load_pem_x509_certificate(peer_cert.encode(), default_backend())
-            self.probe_ssl_earliest_cert_expiry.labels([]).set(peer_cert.not_valid_after.timestamp())
+        for key in self._data:
+            self._data[key]['value'] = 0.0
 
-    def _check_endpoint(self, url: urllib.ParseResult):
-        self.probe_http_status_code.clear()
-        self.probe_duration_seconds.clear()
+        self._lock.release()
 
-        with Session() as client:
-            resp = client.request("GET", url.geturl(), verify=False)
-            self.probe_http_status_code.labels([]).set(resp.status_code)
-            self.probe_duration_seconds.labels([]).set(resp.elapsed.seconds)
+    def __call__(self, target: str, writer) -> None:
+        url = urllib.urlparse(target)
+        self.clear()
+        self._request_data(url)
+
+        for item in self._format_data():
+            writer.write(item)
+
+    def _request_data(self, url: urllib.ParseResult) -> None:
+        try:
+            if url.scheme.startswith('https'):
+                port = 443 if not url.port else url.port
+                peer_cert = ssl.get_server_certificate((url.hostname, port))
+                peer_cert = x509.load_pem_x509_certificate(peer_cert.encode(), default_backend())
+                self.set('probe_ssl_earliest_cert_expiry', peer_cert.not_valid_after.timestamp())
+
+        except Exception:
+            pass
+
+        try:
+            with Session() as client:
+                resp = client.request("GET", url.geturl(), verify=False)
+                self.set('probe_http_status_code', resp.status_code)
+                self.set('probe_duration_seconds', resp.elapsed.seconds)
+
+        except Exception:
+            pass
+
+    def _format_data(self) -> bytes:
+        self._lock.acquire()
+
+        for key in self._data:
+            metric_help = '# HELP {} {}\n'.format(key, self._data[key]['help'])
+            yield metric_help.encode()
+
+            metric_type = '# TYPE {} {}\n'.format(key, self._data[key]['type'])
+            yield metric_type.encode()
+
+            metric_value = '{} {}\n'.format(key, self._data[key]['value'])
+            yield metric_value.encode()
+
+        self._lock.release()
+
+
+class RequestHandler(http.BaseHTTPRequestHandler):
+    metric_handler = None
+    server_version = 'HealthCheckExporter'
+    sys_version = 'Python3'
 
     def do_GET(self):
         path = urllib.urlparse(self.path)
@@ -59,14 +106,16 @@ class HealthCheck(MetricsHandler):
         print('GET', path.geturl())
 
         if (path.path == '/probe') and (args.get('target')):
-            target = urllib.urlparse(args.get('target')[0])
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
 
-            self._load_ssl_cert(target)
-            self._check_endpoint(target)
-            super(HealthCheck, self).do_GET()
+            target = args.get('target')[0]
+            self.metric_handler(target, self.wfile)
 
         else:
             self.send_response(404)
+            self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(b"No target defined\n")
 
@@ -82,10 +131,14 @@ The main goal of this tool is to check URLs and convert them to Prometheus metri
 
         disable_warnings()
         args = parser.parse_args()
-        print('Listen {}:{}'.format(args.address, args.port))
-        HTTPServer((args.address, args.port), HealthCheck).serve_forever()
+        RequestHandler.metric_handler = MetricHandler()
+
+        with socketserver.ThreadingTCPServer((args.address, args.port), RequestHandler) as srv:
+            print('Listen {}:{}'.format(args.address, args.port))
+            srv.serve_forever()
 
     except KeyboardInterrupt:
+        srv.shutdown()
         sys.exit(0)
 
     except Exception:
