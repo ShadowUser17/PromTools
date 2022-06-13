@@ -26,19 +26,19 @@ class MetricHandler:
         self._data = {
             'probe_ssl_earliest_cert_expiry': {
                 'help': 'Returns earliest SSL cert expiry in unixtime',
-                'type': 'gauge', 'value': 0.0
+                'type': 'gauge', 'value': None
             },
             'probe_http_status_code': {
                 'help': 'Response HTTP status code',
-                'type': 'gauge', 'value': 0
+                'type': 'gauge', 'value': None
             },
             'probe_duration_seconds': {
                 'help': 'Returns how long the probe took to complete in seconds',
-                'type': 'gauge', 'value': 0.0
+                'type': 'gauge', 'value': None
             },
             'probe_success': {
                 'help': 'Contains SSL leaf certificate information',
-                'type': 'gauge', 'value': 0
+                'type': 'gauge', 'value': None
             }
         }
 
@@ -47,11 +47,23 @@ class MetricHandler:
         self._data[key]['value'] = value
         self._lock.release()
 
+    def get(self, key: str) -> tuple:
+        'Return: tuple(help, type, value)'
+        self._lock.acquire()
+        data = (
+            self._data[key].get('help'),
+            self._data[key].get('type'),
+            self._data[key].get('value')
+        )
+        self._lock.release()
+        return data
+
+
     def clear(self) -> None:
         self._lock.acquire()
 
         for key in self._data:
-            self._data[key]['value'] = 0.0
+            self._data[key]['value'] = None
 
         self._lock.release()
 
@@ -86,19 +98,14 @@ class MetricHandler:
             self.set('probe_success', 0)
 
     def _format_data(self) -> bytes:
-        self._lock.acquire()
-
         for key in self._data:
-            metric_help = '# HELP {} {}\n'.format(key, self._data[key]['help'])
-            yield metric_help.encode()
+            items = self.get(key)
 
-            metric_type = '# TYPE {} {}\n'.format(key, self._data[key]['type'])
-            yield metric_type.encode()
+            yield '# HELP {} {}\n'.format(key, items[0]).encode()
+            yield '# TYPE {} {}\n'.format(key, items[1]).encode()
 
-            metric_value = '{} {}\n'.format(key, self._data[key]['value'])
-            yield metric_value.encode()
-
-        self._lock.release()
+            if items[2]:
+                yield '{} {}\n'.format(key, items[2]).encode()
 
 
 class RequestHandler(http.BaseHTTPRequestHandler):
@@ -120,7 +127,7 @@ class RequestHandler(http.BaseHTTPRequestHandler):
             self.send_response(404)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
-            self.wfile.write(b"No target defined\n")
+            self.wfile.write(b"No target defined!\nUse /probe?target=<url>\n")
 
 
 if __name__ == '__main__':
@@ -130,7 +137,7 @@ This is a Health Check Exporter
 The main goal of this tool is to check URLs and convert them to Prometheus metrics.\
 ''')
         parser.add_argument('-l', dest='address', default='127.0.0.1', help='Set exporter listen address.')
-        parser.add_argument('-p', dest='port', default=49155, type=int, help='Set exporter listen port.')
+        parser.add_argument('-p', dest='port', default=9097, type=int, help='Set exporter listen port.')
 
         disable_warnings()
         args = parser.parse_args()
