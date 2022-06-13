@@ -30,11 +30,15 @@ class MetricHandler:
             },
             'probe_http_status_code': {
                 'help': 'Response HTTP status code',
-                'type': 'gauge', 'value': 0.0
+                'type': 'gauge', 'value': 0
             },
             'probe_duration_seconds': {
                 'help': 'Returns how long the probe took to complete in seconds',
                 'type': 'gauge', 'value': 0.0
+            },
+            'probe_success': {
+                'help': 'Contains SSL leaf certificate information',
+                'type': 'gauge', 'value': 0
             }
         }
 
@@ -60,6 +64,8 @@ class MetricHandler:
             writer.write(item)
 
     def _request_data(self, url: urllib.ParseResult) -> None:
+        self.set('probe_success', 1)
+
         try:
             if url.scheme.startswith('https'):
                 port = 443 if not url.port else url.port
@@ -68,7 +74,7 @@ class MetricHandler:
                 self.set('probe_ssl_earliest_cert_expiry', peer_cert.not_valid_after.timestamp())
 
         except Exception:
-            pass
+            self.set('probe_success', 0)
 
         try:
             with Session() as client:
@@ -77,7 +83,7 @@ class MetricHandler:
                 self.set('probe_duration_seconds', resp.elapsed.seconds)
 
         except Exception:
-            pass
+            self.set('probe_success', 0)
 
     def _format_data(self) -> bytes:
         self._lock.acquire()
@@ -103,15 +109,12 @@ class RequestHandler(http.BaseHTTPRequestHandler):
     def do_GET(self):
         path = urllib.urlparse(self.path)
         args = urllib.parse_qs(path.query)
-        print('GET', path.geturl())
 
         if (path.path == '/probe') and (args.get('target')):
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
-
-            target = args.get('target')[0]
-            self.metric_handler(target, self.wfile)
+            self.metric_handler(args.get('target')[0], self.wfile)
 
         else:
             self.send_response(404)
