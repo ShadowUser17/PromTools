@@ -9,7 +9,7 @@ Group=prometheus
 Type=simple
 Restart=on-failure
 WorkingDirectory=/tmp
-ExecStart=/opt/PromTools/env/bin/python3 /opt/PromTools/prometheus/health_check_exporter.py
+ExecStart=/opt/PromTools/env/bin/python3 /opt/PromTools/prometheus/hc_exporter.py
 
 [Install]
 WantedBy=multi-user.target
