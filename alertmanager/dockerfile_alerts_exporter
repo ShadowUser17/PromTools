@@ -2,10 +2,10 @@ FROM python:alpine
 
 WORKDIR /root
 
-RUN wget "https://raw.githubusercontent.com/ShadowUser17/PromTools/main/alertmanager/alerts_exporter.py"
+COPY ./alerts_exporter.py ./
 
 EXPOSE 9095/tcp
 
 ENTRYPOINT ["python3", "alerts_exporter.py"]
 
-CMD ["-l", "0.0.0.0:9095", "-t", "http://127.0.0.1:9093"]
+CMD ["-l", "0.0.0.0', '-p', '9095", "-t", "http://127.0.0.1:9093"]

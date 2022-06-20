@@ -7,11 +7,11 @@ import socketserver
 import threading
 import traceback
 import argparse
+import typing
 import json
+import sys
 
-# If you need to add a new metric.
-# Edit following class methods:
-# __init__, _request_alerts, _format_alerts
+
 class HandleAlerts:
     def __init__(self, target: str) -> None:
         if not target.startswith('http'):
@@ -19,24 +19,50 @@ class HandleAlerts:
 
         target = urllib.urljoin(target, '/api/v2/alerts')
         self._target = request.Request(target, method='GET')
+        self._lock = threading.Lock()
 
-        # Initialize metrics...
-        self._metric = 'amanager_exp_alert'
-        self._metric_help = 'Alerts from AlertManager'
-        self._alerts_lock = threading.Lock()
-        self._alerts = dict()
+        self._metrics = {
+            'amanager_exp_err_request': {
+                'help': 'Requests error counter',
+                'type': 'gauge', 'value': 0.0
+            },
+            'amanager_exp_err_parser': {
+                'help': 'Parser error counter',
+                'type': 'gauge', 'value': 0.0
+            },
+            'amanager_exp_alert': {
+                'help': 'Alert from AlertManager',
+                'type': 'gauge', 'value': None
+            }
+        }
 
-        self._err_request_name = 'amanager_exp_err_request'
-        self._err_request_help = ''
-        self._err_request = 0.0
 
-        self._err_parser_name = 'amanager_exp_err_parser'
-        self._err_parser_help = ''
-        self._err_parser = 0.0
+    def get(self, key: str) -> list:
+        'Return [help, type value]'
+        self._lock.acquire()
+        data = [
+            self._metrics[key].get('help'),
+            self._metrics[key].get('type'),
+            self._metrics[key].get('value')
+        ]
+
+        self._lock.release()
+        return data
 
 
-    def _request_alerts(self) -> bool:
-        self._alerts.clear()
+    def set(self, key: str, value: typing.Any) -> None:
+        self._lock.acquire()
+        self._metrics[key]['value'] = value
+        self._lock.release()
+
+
+    def inc(self, key: str) -> None:
+        self._lock.acquire()
+        self._metrics[key]['value'] += 1
+        self._lock.release()
+
+
+    def _request_alerts(self) -> None:
         data = None
 
         try:
@@ -44,62 +70,68 @@ class HandleAlerts:
                 data = client.read()
                 data = json.loads(data.decode())
 
-            for item in data:
-                # Required items:
-                severity = item['labels']['severity']
-                summary = item['annotations']['summary']
-                summary = summary.replace('\n', '\\n')
-
-                # Optional items:
-                dashboard = item['annotations'].get('dashboard', '')
-                self._alerts[item['fingerprint']] = [severity, summary, dashboard]
+            data = list(self._filter_alerts(data))
+            self.set('amanager_exp_alert', data)
 
         except (error.ContentTooShortError, error.HTTPError, error.URLError):
-            self._err_request += 1
-            traceback.print_exc()
-            return True
+            self.inc('amanager_exp_err_request')
+            self.set('amanager_exp_alert', [])
 
         except (KeyError, AttributeError):
-            self._err_parser += 1
-            traceback.print_exc()
-            return True
+            self.inc('amanager_exp_err_parser')
+            self.set('amanager_exp_alert', [])
 
 
-    def _format_alerts(self, skip_data: bool) -> str:
+    def _filter_alerts(self, data: list) -> typing.Generator:
+        accept_labels = ['severity']
+        accept_annotations = ['fingerprint', 'dashboard', 'docs']
+
+        for item in data:
+            alert = list()
+
+            labels = item.get('labels', {})
+            for key in accept_labels:
+                if labels.get(key):
+                    alert.append('{}=\"{}\"'.format(key, labels.get(key)))
+
+            annotations = item.get('annotations', {})
+            for key in accept_annotations:
+                if annotations.get(key):
+                    alert.append('{}=\"{}\"'.format(key, annotations.get(key)))
+
+            yield ','.join(alert)
+
+
+    def _format_alerts(self) -> str:
         line = list()
 
-        # Skip data if error.
-        if not skip_data:
-            # Add metric headers.
-            line.extend([
-                '# HELP {} {}'.format(self._metric, self._metric_help),
-                '# TYPE {} gauge'.format(self._metric)
-            ])
-
-            # Build metric string.
-            template = 'severity=\"{}\",summary=\"{}\",dashboard=\"{}\",'
-            for (severity, summary, dashboard) in self._alerts.values():
-                line.append(self._metric + '{' + template.format(severity, summary, dashboard) + '} 1.0')
-
         # Add error counters.
-        line.extend([
-            '# HELP {} {}'.format(self._err_request_name, self._err_request_help),
-            '# TYPE {} gauge'.format(self._err_request_name),
-            '{} {}'.format(self._err_request_name, self._err_request),
-
-            '# HELP {} {}'.format(self._err_parser_name, self._err_parser_help),
-            '# TYPE {} gauge'.format(self._err_parser_name),
-            '{} {}'.format(self._err_parser_name, self._err_parser)
+        for key in ['amanager_exp_err_request', 'amanager_exp_err_parser']:
+            items = self.get(key)
+            line.extend([
+            '# HELP {} {}'.format(key, items[0]),
+            '# TYPE {} {}'.format(key, items[1]),
+            '{} {}'.format(key, items[2])
         ])
+
+        # Add alerts metric.
+        alerts_key = 'amanager_exp_alert'
+        alerts = self.get(alerts_key)
+
+        line.extend([
+            '# HELP {} {}'.format(alerts_key, alerts[0]),
+            '# TYPE {} {}'.format(alerts_key, alerts[1])
+        ])
+
+        for item in alerts[2]:
+            line.append(alerts_key + '{' + item + '} 1.0')
 
         return '\n'.join(line)
 
 
     def __call__(self) -> bytes:
-        self._alerts_lock.acquire()
-        line = self._format_alerts(self._request_alerts())
-
-        self._alerts_lock.release()
+        self._request_alerts()
+        line = self._format_alerts()
         return line.encode()
 
 
@@ -128,28 +160,26 @@ This is an AlertManager exporter.
 The main goal of this tool is to get alerts from AlertManager and convert them to Prometheus metrics.\
 ''')
     parser.add_argument('-t', dest='target', default='http://127.0.0.1:9093', help='Set alertmanager address.')
-    parser.add_argument('-l', dest='listen', default='127.0.0.1:49152', help='Set exporter listen address.')
+    parser.add_argument('-l', dest='listen', default='127.0.0.1', help='Set exporter listen address.')
+    parser.add_argument('-p', dest='port', default=49152, type=int, help='Set exporter listen port.')
     return parser.parse_args()
-
-
-def get_listen(address: str) -> tuple:
-    (addr, port) = address.split(':')
-    return (addr, int(port))
 
 
 def main(args: argparse.Namespace) -> None:
     try:
         HandlerRequest.alerts_handler = HandleAlerts(args.target)
 
-        with socketserver.ThreadingTCPServer(get_listen(args.listen), HandlerRequest) as srv:
-            print('Target: {} Listen: {}'.format(args.target, args.listen))
+        with socketserver.ThreadingTCPServer((args.listen, args.port), HandlerRequest) as srv:
+            print('Target: {} Listen: {}:{}'.format(args.target, args.listen, args.port))
             srv.serve_forever()
 
     except KeyboardInterrupt:
         srv.shutdown()
+        sys.exit(0)
 
     except Exception:
         traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == '__main__':
