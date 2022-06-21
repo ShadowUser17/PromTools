@@ -83,7 +83,7 @@ class HandleAlerts:
 
 
     def _filter_alerts(self, data: list) -> typing.Generator:
-        accept_labels = ['severity']
+        accept_labels = ['alertname', 'severity']
         accept_annotations = ['fingerprint', 'dashboard', 'docs']
 
         for item in data:
