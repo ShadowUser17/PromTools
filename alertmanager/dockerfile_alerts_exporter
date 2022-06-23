@@ -1,4 +1,4 @@
-FROM alpine AS Dev
+FROM alpine:latest AS Dev
 
 WORKDIR /root
 

@@ -41,15 +41,21 @@ class RequestHandler(http.BaseHTTPRequestHandler):
 
 
     def do_GET(self) -> None:
-        data = self.metric_handler()
-        size = str(len(data))
+        if (self.path == '/') or (self.path == '/metrics'):
+            data = self.metric_handler()
+            size = str(len(data))
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.send_header('Content-Length', size)
-        self.end_headers()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', size)
+            self.end_headers()
+            self.wfile.write(data)
 
-        self.wfile.write(data)
+        else:
+            self.send_response(404)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write('Target {} not found!\n'.format(self.path).encode())
 
 
 class MetricsHandler:
@@ -67,7 +73,7 @@ class MetricsHandler:
         self._alerts = Counter(
             name='amanager_exp_alert',
             documentation='Alert from AlertManager',
-            labelnames=['alertname', 'fingerprint', 'severity', 'dashboard', 'docs'],
+            labelnames=['alertname', 'severity', 'fingerprint', 'dashboard', 'docs'],
             registry=registry
         )
 
