@@ -14,7 +14,7 @@ import sys
 logging.basicConfig(
     format=r'%(levelname)s [%(asctime)s]: "%(message)s"',
     datefmt=r'%Y-%m-%d %H:%M:%S',
-    level=logging.DEBUG
+    level=logging.INFO
 )
 
 try:
@@ -52,7 +52,7 @@ class RequestHandler(http.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-class MetricHandler:
+class MetricsHandler:
     def __init__(self, target: str, registry: CollectorRegistry) -> None:
         self._registry = registry
 
@@ -109,7 +109,7 @@ class MetricHandler:
             logging.error(logging.error('Parser: ' + str(message)))
 
 
-    def _filter_alerts(self, data: list) -> typing.Generator:
+    def _filter_alerts(self, data: typing.Iterable) -> typing.Generator:
         accept_labels = ['alertname', 'severity']
         accept_annotations = ['fingerprint', 'dashboard', 'docs']
 
@@ -141,13 +141,14 @@ The main goal of this tool is to get alerts from AlertManager and convert them t
 if __name__ == '__main__':
     try:
         args = get_args()
-        RequestHandler.metric_handler = MetricHandler(args.target, CollectorRegistry())
+        RequestHandler.metric_handler = MetricsHandler(args.target, CollectorRegistry())
 
         with socketserver.ThreadingTCPServer((args.listen, args.port), RequestHandler) as srv:
-            logging.info('Listen: {}:{} (AlertManager: {})'.format(args.listen, args.port, args.target))
+            logging.info('Listen: http://{}:{}/ (AlertManager: {})'.format(args.listen, args.port, args.target))
             srv.serve_forever()
 
     except KeyboardInterrupt:
+        logging.info('Interrupting...')
         srv.server_close()
         sys.exit(0)
 
