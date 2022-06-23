@@ -1,11 +1,25 @@
-FROM python:alpine
+FROM alpine AS Dev
 
 WORKDIR /root
 
-COPY ./alerts_exporter.py ./
+COPY ./requirements.txt ./
+
+RUN apk add --no-cache python3 py3-pip && \
+    python3 -m venv --upgrade-deps env && \
+    ./env/bin/pip3 install --no-cache -r ./requirements.txt
+
+
+FROM python:alpine AS Prod
+
+WORKDIR /opt
+
+COPY --from=Dev /root/env ./env
+COPY ./alerts_exporter.py ./env/alerts_exporter.py
+
+RUN ln -s /usr/local/bin/python3 /usr/bin/python3
 
 EXPOSE 9095/tcp
 
-ENTRYPOINT ["python3", "alerts_exporter.py"]
+ENTRYPOINT ["./env/bin/python3", "alerts_exporter.py"]
 
 CMD ["-l", "0.0.0.0', '-p', '9095", "-t", "http://127.0.0.1:9093"]

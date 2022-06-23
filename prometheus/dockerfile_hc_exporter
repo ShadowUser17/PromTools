@@ -8,6 +8,7 @@ RUN apk add --no-cache build-base libffi-dev openssl-dev python3 python3-dev py3
     python3 -m venv --upgrade-deps env && \
     ./env/bin/pip3 install --no-cache -r ./requirements.txt
 
+
 FROM python:alpine AS Prod
 
 WORKDIR /opt
