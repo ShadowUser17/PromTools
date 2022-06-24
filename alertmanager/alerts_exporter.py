@@ -18,6 +18,7 @@ logging.basicConfig(
 )
 
 try:
+    from prometheus_client import Gauge
     from prometheus_client import Counter
     from prometheus_client import CollectorRegistry
     from prometheus_client.exposition import generate_latest
@@ -51,6 +52,10 @@ class RequestHandler(http.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
 
+        elif self.path == '/reset':
+            self.log_message('Request of clean all alerts.')
+            self.metric_handler.clean()
+
         else:
             self.send_response(404)
             self.send_header('Content-type', 'text/html')
@@ -61,6 +66,7 @@ class RequestHandler(http.BaseHTTPRequestHandler):
 class MetricsHandler:
     def __init__(self, target: str, registry: CollectorRegistry) -> None:
         self._registry = registry
+        self._alerts_name = 'amanager_exp_alert'
 
         if not target.startswith('http'):
             target = 'http://' + target
@@ -70,8 +76,8 @@ class MetricsHandler:
             method='GET'
         )
 
-        self._alerts = Counter(
-            name='amanager_exp_alert',
+        self._alerts = Gauge(
+            name=self._alerts_name,
             documentation='Alert from AlertManager',
             labelnames=['alertname', 'severity', 'fingerprint', 'dashboard', 'docs'],
             registry=registry
@@ -96,6 +102,11 @@ class MetricsHandler:
         return generate_latest(self._registry)
 
 
+    def clean(self) -> None:
+        'Clean all alerts.'
+        self._alerts.clear()
+
+
     def _request_alerts(self) -> None:
         try:
             with request.urlopen(self._target) as client:
@@ -103,8 +114,8 @@ class MetricsHandler:
                 data = json.loads(data.decode())
                 logging.info('Request: ' + client.geturl())
 
-            for item in self._filter_alerts(data):
-                self._alerts.labels(**item).inc()
+            data = self._filter_alerts(data)
+            self._update_alerts(data)
 
         except (error.ContentTooShortError, error.HTTPError, error.URLError) as message:
             self._error_request.inc()
@@ -131,6 +142,19 @@ class MetricsHandler:
                 alert[key] = annotations.get(key, '')
 
             yield alert
+
+
+    def _update_alerts(self, new_data: typing.Iterable) -> None:
+        for metric in self._registry.collect():
+            if metric.name != self._alerts_name:
+                continue
+
+            for sample in metric.samples:
+                if not (sample.labels in new_data):
+                    self._alerts.labels(**sample.labels).set(0.0)
+
+            for item in new_data:
+                self._alerts.labels(**item).inc()
 
 
 def get_args() -> argparse.Namespace:
