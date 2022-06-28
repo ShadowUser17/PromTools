@@ -10,5 +10,10 @@ docker run --rm --name alerts_exporter -d -p '9095:9095/tcp' alerts_exporter:lat
 
 #### Collect data:
 ```bash
-curl '127.0.0.1:9095/metrics'
+curl -X GET 'http://127.0.0.1:9095/metrics'
+```
+
+#### Reset data:
+```bash
+curl -X POST 'http://127.0.0.1:9095/reset'
 ```
