@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 try:
-    from prometheus_client import Counter
+    from prometheus_client import Gauge
     from prometheus_client import CollectorRegistry
     from prometheus_client.exposition import generate_latest
 
@@ -40,6 +40,25 @@ class RequestHandler(http.BaseHTTPRequestHandler):
         logging.info("%s - - %s" % (self.address_string(), format % args))
 
 
+    def _handle_404(self) -> None:
+        self.send_response(404)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write('Target {} not found!\n'.format(self.path).encode())
+
+
+    def do_POST(self) -> None:
+        if self.path == '/reset':
+            self.send_response(200)
+            self.end_headers()
+
+            self.log_message('Request of clean all alerts.')
+            self.metric_handler.clean()
+
+        else:
+            self._handle_404()
+
+
     def do_GET(self) -> None:
         if (self.path == '/') or (self.path == '/metrics'):
             data = self.metric_handler()
@@ -52,15 +71,13 @@ class RequestHandler(http.BaseHTTPRequestHandler):
             self.wfile.write(data)
 
         else:
-            self.send_response(404)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write('Target {} not found!\n'.format(self.path).encode())
+            self._handle_404()
 
 
 class MetricsHandler:
     def __init__(self, target: str, registry: CollectorRegistry) -> None:
         self._registry = registry
+        self._alerts_name = 'amanager_exp_alert'
 
         if not target.startswith('http'):
             target = 'http://' + target
@@ -70,20 +87,26 @@ class MetricsHandler:
             method='GET'
         )
 
-        self._alerts = Counter(
-            name='amanager_exp_alert',
+        self._alerts = Gauge(
+            name=self._alerts_name,
             documentation='Alert from AlertManager',
             labelnames=['alertname', 'severity', 'fingerprint', 'dashboard', 'docs'],
             registry=registry
         )
 
-        self._error_request = Counter(
+        self._req_count = Gauge(
+            name='amanager_exp_req_count',
+            documentation='Requests of data',
+            registry=registry
+        )
+
+        self._error_request = Gauge(
             name='amanager_exp_err_request',
             documentation='Requests error counter',
             registry=registry
         )
 
-        self._error_parser = Counter(
+        self._error_parser = Gauge(
             name='amanager_exp_err_parser',
             documentation='Parser error counter',
             registry=registry
@@ -96,15 +119,25 @@ class MetricsHandler:
         return generate_latest(self._registry)
 
 
+    def clean(self) -> None:
+        'Clean all alerts.'
+        self._alerts.clear()
+        self._req_count.set(0.0)
+        self._error_request.set(0.0)
+        self._error_parser.set(0.0)
+
+
     def _request_alerts(self) -> None:
         try:
             with request.urlopen(self._target) as client:
                 data = client.read()
                 data = json.loads(data.decode())
+
+                self._req_count.inc()
                 logging.info('Request: ' + client.geturl())
 
-            for item in self._filter_alerts(data):
-                self._alerts.labels(**item).inc()
+            data = self._filter_alerts(data)
+            self._update_alerts(data)
 
         except (error.ContentTooShortError, error.HTTPError, error.URLError) as message:
             self._error_request.inc()
@@ -131,6 +164,19 @@ class MetricsHandler:
                 alert[key] = annotations.get(key, '')
 
             yield alert
+
+
+    def _update_alerts(self, new_data: typing.Iterable) -> None:
+        for metric in self._registry.collect():
+            if metric.name != self._alerts_name:
+                continue
+
+            for sample in metric.samples:
+                if not (sample.labels in new_data):
+                    self._alerts.labels(**sample.labels).set(0.0)
+
+            for item in new_data:
+                self._alerts.labels(**item).inc()
 
 
 def get_args() -> argparse.Namespace:
