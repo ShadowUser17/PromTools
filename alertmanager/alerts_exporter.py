@@ -19,7 +19,6 @@ logging.basicConfig(
 
 try:
     from prometheus_client import Gauge
-    from prometheus_client import Counter
     from prometheus_client import CollectorRegistry
     from prometheus_client.exposition import generate_latest
 
@@ -41,6 +40,25 @@ class RequestHandler(http.BaseHTTPRequestHandler):
         logging.info("%s - - %s" % (self.address_string(), format % args))
 
 
+    def _handle_404(self) -> None:
+        self.send_response(404)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write('Target {} not found!\n'.format(self.path).encode())
+
+
+    def do_POST(self) -> None:
+        if self.path == '/reset':
+            self.send_response(200)
+            self.end_headers()
+
+            self.log_message('Request of clean all alerts.')
+            self.metric_handler.clean()
+
+        else:
+            self._handle_404()
+
+
     def do_GET(self) -> None:
         if (self.path == '/') or (self.path == '/metrics'):
             data = self.metric_handler()
@@ -52,15 +70,8 @@ class RequestHandler(http.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
 
-        elif self.path == '/reset':
-            self.log_message('Request of clean all alerts.')
-            self.metric_handler.clean()
-
         else:
-            self.send_response(404)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write('Target {} not found!\n'.format(self.path).encode())
+            self._handle_404()
 
 
 class MetricsHandler:
@@ -83,13 +94,19 @@ class MetricsHandler:
             registry=registry
         )
 
-        self._error_request = Counter(
+        self._req_count = Gauge(
+            name='amanager_exp_req_count',
+            documentation='Requests of data',
+            registry=registry
+        )
+
+        self._error_request = Gauge(
             name='amanager_exp_err_request',
             documentation='Requests error counter',
             registry=registry
         )
 
-        self._error_parser = Counter(
+        self._error_parser = Gauge(
             name='amanager_exp_err_parser',
             documentation='Parser error counter',
             registry=registry
@@ -105,6 +122,9 @@ class MetricsHandler:
     def clean(self) -> None:
         'Clean all alerts.'
         self._alerts.clear()
+        self._req_count.set(0.0)
+        self._error_request.set(0.0)
+        self._error_parser.set(0.0)
 
 
     def _request_alerts(self) -> None:
@@ -112,6 +132,8 @@ class MetricsHandler:
             with request.urlopen(self._target) as client:
                 data = client.read()
                 data = json.loads(data.decode())
+
+                self._req_count.inc()
                 logging.info('Request: ' + client.geturl())
 
             data = self._filter_alerts(data)
