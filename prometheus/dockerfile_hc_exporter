@@ -20,4 +20,6 @@ RUN ln -s /usr/local/bin/python3 /usr/bin/python3
 
 EXPOSE 9097/tcp
 
-ENTRYPOINT ["./env/bin/python3", "./env/exporter.py", "-l", "0.0.0.0", "-p", "9097"]
+ENTRYPOINT ["./env/bin/python3", "./env/exporter.py"]
+
+CMD ["-l", "0.0.0.0", "-p", "9097"]
