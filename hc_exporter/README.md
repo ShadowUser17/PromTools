@@ -1,6 +1,6 @@
 #### Build docker image:
 ```bash
-cd prometheus && docker build -f dockerfile_hc_exporter -t hc_exporter .
+docker build -f dockerfile_hc_exporter -t hc_exporter .
 ```
 
 #### Run docker image:

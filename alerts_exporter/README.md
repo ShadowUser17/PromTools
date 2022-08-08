@@ -1,6 +1,6 @@
 #### Build docker image:
 ```bash
-cd alertmanager && docker build -f dockerfile_alerts_exporter -t alerts_exporter .
+docker build -f dockerfile_alerts_exporter -t alerts_exporter .
 ```
 
 #### Run docker image:
