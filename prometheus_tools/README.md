@@ -1,5 +1,8 @@
-#### URLs:
-- [querying_api](https://prometheus.io/docs/prometheus/latest/querying/api/)
+#### Configure environment:
+```bash
+python3 -m venv --upgrade-deps env && \
+./env/bin/pip3 install -r requirements.txt
+```
 
 #### Template example:
 ```
@@ -24,3 +27,6 @@ groups:
       fingerprint: "Service (Instance: {{ item }})"
 {% endfor %}
 ```
+
+#### URLs:
+- [querying_api](https://prometheus.io/docs/prometheus/latest/querying/api/)
