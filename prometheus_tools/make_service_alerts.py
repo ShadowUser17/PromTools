@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-from pathlib import Path
-
 import sys
+import jinja2
+import logging
 import argparse
 import traceback
 
-try:
-    import jinja2
-
-except ImportError:
-    print('Missing dependencies!', file=sys.stderr)
-    sys.exit(2)
+from pathlib import Path
 
 
-def get_args() -> argparse.Namespace:
+def configure_logger() -> None:
+    logging.basicConfig(
+        format=r'%(levelname)s [%(asctime)s]: "%(message)s"',
+        datefmt=r'%Y-%m-%d %H:%M:%S', level=logging.INFO
+    )
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('env',      help='Set rules env')
     parser.add_argument('source',   help='Set servies list file')
@@ -23,7 +25,8 @@ def get_args() -> argparse.Namespace:
 
 
 try:
-    args = get_args()
+    configure_logger()
+    args = parse_args()
     env = args.env
 
     services = Path(args.source).read_text()
@@ -34,5 +37,5 @@ try:
     Path(args.output).write_text(data)
 
 except Exception:
-    traceback.print_exc()
+    logging.error(traceback.format_exc())
     sys.exit(1)
