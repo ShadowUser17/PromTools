@@ -57,14 +57,13 @@ def print_alerts(parsed_data: list) -> None:
         logging.info(template.format(severity, summary, description))
 
 
-if __name__ == '__main__':
-    try:
-        configure_logger()
-        args = parse_args()
-        data = get_alerts(args.target)
-        data = parse_alerts(data)
-        print_alerts(data)
+try:
+    configure_logger()
+    args = parse_args()
+    data = get_alerts(args.target)
+    data = parse_alerts(data)
+    print_alerts(data)
 
-    except Exception:
-        logging.error(traceback.format_exc())
-        sys.exit(1)
+except Exception:
+    logging.error(traceback.format_exc())
+    sys.exit(1)
