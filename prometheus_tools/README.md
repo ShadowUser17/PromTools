@@ -29,4 +29,5 @@ groups:
 ```
 
 #### URLs:
-- [querying_api](https://prometheus.io/docs/prometheus/latest/querying/api/)
+- [querying](https://prometheus.io/docs/prometheus/latest/querying/api/)
+- [alerting](https://prometheus.io/docs/alerting/latest/clients/)
